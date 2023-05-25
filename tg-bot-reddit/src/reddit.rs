@@ -77,7 +77,7 @@ impl Client {
             .as_str()
             .unwrap();
 
-        return Ok(access_token.to_string());
+        Ok(access_token.to_string())
     }
 
     fn construct_headers(token: &str) -> HeaderMap {
@@ -89,14 +89,14 @@ impl Client {
                 .unwrap(),
         );
         headers.insert("Authorization", format!("bearer {token}").parse().unwrap());
-        return headers;
+        headers
     }
 
     pub async fn reddit_request(&mut self, endpoint: &str) -> Result<serde_json::Value> {
         let token = self.get_token().await?;
         let response = self
             .base_client
-            .get(format!("https://oauth.reddit.com/{}", endpoint))
+            .get(format!("https://oauth.reddit.com/{endpoint}"))
             .headers(Client::construct_headers(&token))
             .send()
             .await?;

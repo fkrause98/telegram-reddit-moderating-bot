@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use teloxide::{prelude::*, utils::command::BotCommands};
 mod reddit;
 #[tokio::main]
@@ -44,8 +43,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
         }
         Command::Debug(_string) => {
             let mut client = reddit::Client::new();
-            if let Ok(auth_token) = client.get_token().await {
-                let about_me = &client.reddit_request("/api/v1/me").await.unwrap();
+            if let Ok(about_me) = &client.reddit_request("/api/v1/me").await {
                 println!(
                     "The about me json: {}",
                     serde_json::to_string_pretty(about_me).unwrap()
@@ -53,7 +51,7 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
                 bot.send_message(msg.chat.id, "Fetched succesfully!")
                     .await?
             } else {
-                bot.send_message(msg.chat.id, format!("Error accessing token"))
+                bot.send_message(msg.chat.id, "Error accessing token".to_string())
                     .await?
             }
         }
