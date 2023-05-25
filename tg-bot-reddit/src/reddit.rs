@@ -1,5 +1,5 @@
 use anyhow::Result;
-use reqwest::header;
+use reqwest::{header, header::HeaderMap};
 use serde_json::Value;
 use std::env;
 pub struct Client {
@@ -79,20 +79,28 @@ impl Client {
 
         return Ok(access_token.to_string());
     }
-    pub async fn reddit_request(&mut self, endpoint: &str) -> Result<String> {
+
+    fn construct_headers(token: &str) -> HeaderMap {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             "User-Agent",
-            "telegram:fran:v1.4.0 (by /u/The_L_Of_Life)".parse()?,
+            "telegram:fran:v1.4.0 (by /u/The_L_Of_Life)"
+                .parse()
+                .unwrap(),
         );
-        let token = self.get_token().await?;
         headers.insert("Authorization", format!("bearer {token}").parse().unwrap());
+        return headers;
+    }
+
+    pub async fn reddit_request(&mut self, endpoint: &str) -> Result<serde_json::Value> {
+        let token = self.get_token().await?;
         let response = self
             .base_client
             .get(format!("https://oauth.reddit.com/{}", endpoint))
-            .headers(headers)
+            .headers(Client::construct_headers(&token))
             .send()
             .await?;
-        Ok(response.json::<String>().await?)
+        let json: serde_json::Value = response.json().await?;
+        Ok(json)
     }
 }
