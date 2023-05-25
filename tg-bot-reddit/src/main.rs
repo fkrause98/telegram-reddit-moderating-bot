@@ -1,12 +1,10 @@
 use teloxide::{prelude::*, utils::command::BotCommands};
-
+mod reddit;
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
     log::info!("Starting command bot...");
-
     let bot = Bot::from_env();
-
     Command::repl(bot, answer).await;
 }
 
@@ -22,6 +20,8 @@ enum Command {
     Username(String),
     #[command(description = "handle a username and an age.", parse_with = "split")]
     UsernameAndAge { username: String, age: u8 },
+    #[command(description = "Debug")]
+    Debug(String),
 }
 
 async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
@@ -40,6 +40,11 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
                 format!("Your username is @{username} and age is {age}."),
             )
             .await?
+        }
+        Command::Debug(string) => {
+            reddit::get_token().await;
+            bot.send_message(msg.chat.id, format!("Check your logs"))
+                .await?
         }
     };
 
