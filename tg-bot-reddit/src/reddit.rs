@@ -2,57 +2,97 @@ use anyhow::Result;
 use reqwest::header;
 use serde_json::Value;
 use std::env;
-async fn oauth_request(
-    client_id: &str,
-    client_secret: &str,
-    username: &str,
-    password: &str,
-) -> Result<Value> {
-    let mut headers = header::HeaderMap::new();
-    headers.insert(
-        "Content-Type",
-        "application/x-www-form-urlencoded".parse().unwrap(),
-    );
-    headers.insert(
-        "User-Agent",
-        "telegram:fran:v1.4.0 (by /u/The_L_Of_Life)"
-            .parse()
-            .unwrap(),
-    );
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .unwrap();
-    let response = client
-        .post("https://www.reddit.com/api/v1/access_token")
-        .basic_auth(client_id, Some(client_secret))
-        .headers(headers)
-        .body(format!(
-            "grant_type=password&username={username}&password={password}"
-        ))
-        .send()
-        .await
-        .expect("Error sending request")
-        .text()
-        .await
-        .unwrap();
-    let json = serde_json::from_str(&response).unwrap();
-    println!("The response: {:?}", json);
-    Ok(json)
+pub struct Client {
+    base_client: reqwest::Client,
+    client_id: String,
+    client_secret: String,
+    username: String,
+    password: String,
 }
-pub async fn get_token() -> Result<String> {
-    let client_id = env::var("CLIENT_ID")?;
-    let client_secret = env::var("CLIENT_SECRET")?;
-    let username = env::var("USERNAME")?;
-    let password = env::var("PASSWORD")?;
+impl Client {
+    pub fn new() -> Client {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let client_id = env::var("CLIENT_ID").unwrap();
+        let client_secret = env::var("CLIENT_SECRET").unwrap();
+        let username = env::var("USERNAME").unwrap();
+        let password = env::var("PASSWORD").unwrap();
+        Client {
+            base_client: client,
+            password,
+            client_id,
+            client_secret,
+            username,
+        }
+    }
+    async fn oauth_request(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<Value> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            "Content-Type",
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+        headers.insert(
+            "User-Agent",
+            "telegram:fran:v1.4.0 (by /u/The_L_Of_Life)"
+                .parse()
+                .unwrap(),
+        );
+        let response = self
+            .base_client
+            .post("https://www.reddit.com/api/v1/access_token")
+            .headers(headers)
+            .basic_auth(client_id, Some(client_secret))
+            .body(format!(
+                "grant_type=password&username={username}&password={password}"
+            ))
+            .send()
+            .await
+            .expect("Error sending request")
+            .text()
+            .await
+            .unwrap();
+        let json = serde_json::from_str(&response).unwrap();
+        Ok(json)
+    }
+    pub async fn get_token(&self) -> Result<String> {
+        let response = self
+            .oauth_request(
+                &self.client_id,
+                &self.client_secret,
+                &self.username,
+                &self.password,
+            )
+            .await?;
+        let access_token = response
+            .get("access_token")
+            .expect("Missing access token, cannot continue")
+            .as_str()
+            .unwrap();
 
-    let response = oauth_request(&client_id, &client_secret, &username, &password).await?;
-    let access_token = response
-        .get("access_token")
-        .expect("Missing access token, cannot continue")
-        .as_str()
-        .unwrap();
-
-    println!("The access token: {:?}", access_token);
-    return Ok(access_token.to_string());
+        return Ok(access_token.to_string());
+    }
+    pub async fn reddit_request(&mut self, endpoint: &str) -> Result<String> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            "User-Agent",
+            "telegram:fran:v1.4.0 (by /u/The_L_Of_Life)".parse()?,
+        );
+        let token = self.get_token().await?;
+        headers.insert("Authorization", format!("bearer {token}").parse().unwrap());
+        let response = self
+            .base_client
+            .get(format!("https://oauth.reddit.com/{}", endpoint))
+            .headers(headers)
+            .send()
+            .await?;
+        Ok(response.json::<String>().await?)
+    }
 }

@@ -41,10 +41,19 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
             )
             .await?
         }
-        Command::Debug(string) => {
-            reddit::get_token().await;
-            bot.send_message(msg.chat.id, format!("Check your logs"))
+        Command::Debug(_string) => {
+            let mut client = reddit::Client::new();
+            if let Ok(auth_token) = client.get_token().await {
+                let about_me = client.reddit_request("/api/v1/me").await.unwrap();
+                bot.send_message(
+                    msg.chat.id,
+                    serde_json::to_string_pretty(&about_me).unwrap(),
+                )
                 .await?
+            } else {
+                bot.send_message(msg.chat.id, format!("Error accessing token"))
+                    .await?
+            }
         }
     };
 
