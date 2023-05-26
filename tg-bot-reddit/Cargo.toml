@@ -15,3 +15,4 @@ serde_json = "1.0.96"
 anyhow = "1.0.71"
 clippy = "0.0.302"
 reddit = "0.0.0"
+serde = {version = "1.0.163", features = ["derive"]}

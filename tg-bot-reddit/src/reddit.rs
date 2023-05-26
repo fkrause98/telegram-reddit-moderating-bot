@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::{header, header::HeaderMap};
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::env;
 pub struct Client {
     base_client: reqwest::Client,
@@ -9,6 +10,19 @@ pub struct Client {
     username: String,
     password: String,
 }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RedditPost {
+    pub link_url: String,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RedditPostData {
+    data: RedditPost,
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModQueueJson {
+    children: Vec<RedditPostData>,
+}
+type ModQueue = Vec<RedditPost>;
 impl Client {
     pub fn new() -> Client {
         let client = reqwest::Client::builder()
@@ -102,5 +116,19 @@ impl Client {
             .await?;
         let json: serde_json::Value = response.json().await?;
         Ok(json)
+    }
+    pub async fn get_modqueue(&mut self, limit: u64) -> Result<Option<ModQueue>> {
+        let url = format!("/r/dankgentina/about/modqueue?limit={limit}");
+        let mut response_json = self.reddit_request(&url).await?;
+        let posts_without_moderation: ModQueue =
+            serde_json::from_value::<ModQueueJson>(response_json["data"].take())?
+                .children
+                .into_iter()
+                .map(|RedditPostData { data }| data)
+                .collect();
+        match posts_without_moderation[..] {
+            [] => Ok(None),
+            _ => Ok(Some(posts_without_moderation)),
+        }
     }
 }

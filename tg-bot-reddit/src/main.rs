@@ -6,7 +6,6 @@ use teloxide::{
 };
 mod reddit;
 type WebHandler = Endpoint<'static, DependencyMap, String>;
-use anyhow::Result;
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
@@ -53,18 +52,12 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
         }
         Command::ModQueue => {
             let mut client = reddit::Client::new();
-            if let Ok(response) = &client
-                .reddit_request("/r/dankgentina/about/modqueue?limit=1")
-                .await
-            {
+            if let Ok(Some(response)) = &client.get_modqueue(1).await {
                 let mod_options = ["Approve", "Remove"]
                     .map(|string| InlineKeyboardButton::callback(string, string));
-                bot.send_message(
-                    msg.chat.id,
-                    response["data"]["children"][0]["data"]["link_url"].to_string(),
-                )
-                .reply_markup(InlineKeyboardMarkup::new([mod_options]))
-                .await?
+                bot.send_message(msg.chat.id, response[0].link_url.clone())
+                    .reply_markup(InlineKeyboardMarkup::new([mod_options]))
+                    .await?
             } else {
                 bot.send_message(msg.chat.id, "Error accessing token".to_string())
                     .await?
