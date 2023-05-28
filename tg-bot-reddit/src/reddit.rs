@@ -2,13 +2,14 @@ use anyhow::{Context, Result};
 use reqwest::{header, header::HeaderMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::env;
+use std::{collections::HashMap, env};
 pub struct Client {
     base_client: reqwest::Client,
     client_id: String,
     client_secret: String,
     username: String,
     password: String,
+    subreddit: String,
 }
 // This is what redit calls a "thing"
 #[derive(Serialize, Deserialize, Debug)]
@@ -20,8 +21,9 @@ pub struct Post {
     // (see https://www.reddit.com/dev/api/#fullnames)
     // but I'm going to use it as an identifier
     // for each post.
+    // Can't use 'id' because serde complains.
     #[serde(alias = "link_id")]
-    pub id: String,
+    pub post_id: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostData {
@@ -43,12 +45,14 @@ impl Client {
         let client_secret = env::var("CLIENT_SECRET").unwrap();
         let username = env::var("USERNAME").unwrap();
         let password = env::var("PASSWORD").unwrap();
+        let subreddit = env::var("SUBREDDIT").unwrap();
         Client {
             base_client: client,
             password,
             client_id,
             client_secret,
             username,
+            subreddit,
         }
     }
     async fn oauth_request(
@@ -128,12 +132,50 @@ impl Client {
             .headers(Client::construct_headers(&token))
             .send()
             .await?;
-        let json = response.json().await?;
+        let json: serde_json::Value = response.json().await?;
         Ok(json)
     }
 
+    pub async fn approve_post(&self, post_id: &str) -> Result<()> {
+        let token = self.get_token().await?;
+        let json_body = HashMap::from([("id", post_id)]);
+        let response = self
+            .base_client
+            .post(format!("https://oauth.reddit.com/api/approve"))
+            .headers(Client::construct_headers(&token))
+            .json(&json_body)
+            .send()
+            .await?;
+        let json = response.json().await?;
+        println!(
+            "Received json as response: {:?}",
+            serde_json::to_string_pretty(&json)
+        );
+        Ok(())
+    }
+
+    pub async fn remove_post(&self, post_id: &str) -> Result<()> {
+        let token = self.get_token().await?;
+        let json_body = HashMap::from([("id", post_id)]);
+        let response = self
+            .base_client
+            .post(format!("https://oauth.reddit.com/api/remove"))
+            .headers(Client::construct_headers(&token))
+            .json(&json_body)
+            .send()
+            .await?;
+        println!("Received response: {response:?}");
+        let json = response.json().await?;
+        println!(
+            "Received json as response: {}",
+            serde_json::to_string_pretty(&json)?
+        );
+        Ok(())
+    }
+
     pub async fn get_modqueue(&mut self, limit: u64) -> Result<Option<ModQueue>> {
-        let url = format!("/r/dankgentina/about/modqueue?limit={limit}");
+        let sub = &(self.subreddit);
+        let url = format!("/r/{sub}/about/modqueue?limit={limit}");
         let mut response_json = self.get_request(&url).await?;
         let posts_without_moderation: ModQueue =
             serde_json::from_value::<ModQueueJson>(response_json["data"].take())?
