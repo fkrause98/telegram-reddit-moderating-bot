@@ -128,7 +128,7 @@ impl Client {
             .headers(Client::construct_headers(&token))
             .send()
             .await?;
-        let json: serde_json::Value = response.json().await?;
+        let json = response.json().await?;
         Ok(json)
     }
 
