@@ -1,7 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use reqwest::{header, header::HeaderMap};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::env;
 pub struct Client {
     base_client: reqwest::Client,
@@ -10,19 +10,29 @@ pub struct Client {
     username: String,
     password: String,
 }
+// This is what redit calls a "thing"
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RedditPost {
+pub struct Post {
     pub link_url: String,
+    pub link_permalink: String,
+    // This field is actually "link_id",
+    // is one of the many identifiers for a "thing",
+    // (see https://www.reddit.com/dev/api/#fullnames)
+    // but I'm going to use it as an identifier
+    // for each post.
+    #[serde(alias = "link_id")]
+    pub id: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RedditPostData {
-    data: RedditPost,
+pub struct PostData {
+    data: Post,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ModQueueJson {
-    children: Vec<RedditPostData>,
+    children: Vec<PostData>,
 }
-type ModQueue = Vec<RedditPost>;
+
+type ModQueue = Vec<Post>;
 impl Client {
     pub fn new() -> Client {
         let client = reqwest::Client::builder()
@@ -69,10 +79,12 @@ impl Client {
             ))
             .send()
             .await
-            .expect("Error sending request")
+            .with_context(|| {
+                "Failed to get token, check your credentials or that reddit isn't down"
+            })?
             .text()
             .await
-            .unwrap();
+            .expect("Empty response from token, something went awfully wrong");
         let json = serde_json::from_str(&response).unwrap();
         Ok(json)
     }
@@ -85,13 +97,15 @@ impl Client {
                 &self.password,
             )
             .await?;
-        let access_token = response
+
+        let access_token: String = response
             .get("access_token")
             .expect("Missing access token, cannot continue")
             .as_str()
-            .unwrap();
+            .unwrap()
+            .into();
 
-        Ok(access_token.to_string())
+        Ok(access_token)
     }
 
     fn construct_headers(token: &str) -> HeaderMap {
@@ -106,7 +120,7 @@ impl Client {
         headers
     }
 
-    pub async fn reddit_request(&mut self, endpoint: &str) -> Result<serde_json::Value> {
+    pub async fn get_request(&mut self, endpoint: &str) -> Result<serde_json::Value> {
         let token = self.get_token().await?;
         let response = self
             .base_client
@@ -117,14 +131,15 @@ impl Client {
         let json: serde_json::Value = response.json().await?;
         Ok(json)
     }
+
     pub async fn get_modqueue(&mut self, limit: u64) -> Result<Option<ModQueue>> {
         let url = format!("/r/dankgentina/about/modqueue?limit={limit}");
-        let mut response_json = self.reddit_request(&url).await?;
+        let mut response_json = self.get_request(&url).await?;
         let posts_without_moderation: ModQueue =
             serde_json::from_value::<ModQueueJson>(response_json["data"].take())?
                 .children
                 .into_iter()
-                .map(|RedditPostData { data }| data)
+                .map(|PostData { data }| data)
                 .collect();
         match posts_without_moderation[..] {
             [] => Ok(None),
