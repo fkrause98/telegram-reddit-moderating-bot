@@ -1,6 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use reqwest::{header, header::HeaderMap};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, env};
 pub struct Client {
@@ -11,28 +10,7 @@ pub struct Client {
     password: String,
     subreddit: String,
 }
-// This is what redit calls a "thing"
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Post {
-    pub link_url: String,
-    pub link_permalink: String,
-    // This field is actually "link_id",
-    // is one of the many identifiers for a "thing",
-    // (see https://www.reddit.com/dev/api/#fullnames)
-    // but I'm going to use it as an identifier
-    // for each post.
-    // Can't use 'id' because serde complains.
-    #[serde(alias = "link_id")]
-    pub post_id: String,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PostData {
-    data: Post,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ModQueueJson {
-    children: Vec<PostData>,
-}
+use crate::reddit_schemas::{ModAction, ModQueueJson, Post, PostData};
 
 type ModQueue = Vec<Post>;
 impl Client {
@@ -112,7 +90,7 @@ impl Client {
         Ok(access_token)
     }
 
-    fn construct_headers(token: &str) -> HeaderMap {
+    fn construct_headers() -> HeaderMap {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             "User-Agent",
@@ -120,7 +98,6 @@ impl Client {
                 .parse()
                 .unwrap(),
         );
-        headers.insert("Authorization", format!("bearer {token}").parse().unwrap());
         headers
     }
 
@@ -129,48 +106,34 @@ impl Client {
         let response = self
             .base_client
             .get(format!("https://oauth.reddit.com/{endpoint}"))
-            .headers(Client::construct_headers(&token))
+            .headers(Client::construct_headers())
+            .bearer_auth(token)
             .send()
             .await?;
         let json: serde_json::Value = response.json().await?;
         Ok(json)
     }
 
-    pub async fn approve_post(&self, post_id: &str) -> Result<()> {
-        let token = self.get_token().await?;
-        let json_body = HashMap::from([("id", post_id)]);
-        let response = self
-            .base_client
-            .post(format!("https://oauth.reddit.com/api/approve"))
-            .headers(Client::construct_headers(&token))
-            .json(&json_body)
-            .send()
-            .await?;
-        let json = response.json().await?;
-        println!(
-            "Received json as response: {:?}",
-            serde_json::to_string_pretty(&json)
-        );
-        Ok(())
-    }
+    // pub async fn about_me(&mut self) -> Result<serde_json::Value> {
+    //     self.get_request("/api/v1/me").await
+    // }
 
-    pub async fn remove_post(&self, post_id: &str) -> Result<()> {
+    pub async fn moderate_post(&self, post_id: &str, ma: ModAction) -> Result<()> {
         let token = self.get_token().await?;
-        let json_body = HashMap::from([("id", post_id)]);
+        let body = HashMap::from([("id", post_id)]);
         let response = self
             .base_client
-            .post(format!("https://oauth.reddit.com/api/remove"))
-            .headers(Client::construct_headers(&token))
-            .json(&json_body)
+            .post(format!("https://oauth.reddit.com/api/{ma}"))
+            .headers(Client::construct_headers())
+            .bearer_auth(token)
+            .form(&body)
             .send()
             .await?;
-        println!("Received response: {response:?}");
-        let json = response.json().await?;
-        println!(
-            "Received json as response: {}",
-            serde_json::to_string_pretty(&json)?
-        );
-        Ok(())
+
+        match response.status().into() {
+            200..=299 => Ok(()),
+            _ => Err(anyhow!("Failed with response: {:?}", response)),
+        }
     }
 
     pub async fn get_modqueue(&mut self, limit: u64) -> Result<Option<ModQueue>> {
@@ -183,6 +146,7 @@ impl Client {
                 .into_iter()
                 .map(|PostData { data }| data)
                 .collect();
+
         match posts_without_moderation[..] {
             [] => Ok(None),
             _ => Ok(Some(posts_without_moderation)),

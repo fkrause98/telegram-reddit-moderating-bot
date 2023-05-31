@@ -1,10 +1,13 @@
+use pretty_trace::*;
 use teloxide::prelude::*;
 mod handlers;
 mod reddit;
+mod reddit_schemas;
 #[tokio::main]
 async fn main() {
+    PrettyTrace::new().on();
     pretty_env_logger::init();
-    log::info!("Starting command bot...");
+    log::info!("Starting command bot");
     let bot = Bot::from_env();
 
     let handler = dptree::entry()
